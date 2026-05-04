@@ -14,7 +14,7 @@ import type {
   TestConnectionResult,
 } from "../types/app";
 
-const WEB_API_BASE = (globalThis as { __BAIBAIAIGC_WEB_API__?: string }).__BAIBAIAIGC_WEB_API__ ?? "";
+export const WEB_API_BASE = (globalThis as { __BAIBAIAIGC_WEB_API__?: string }).__BAIBAIAIGC_WEB_API__ ?? "";
 
 type ProgressListener = (payload: RoundProgress) => void;
 
@@ -26,7 +26,7 @@ type RunStream = {
 
 const runStreams = new Map<string, RunStream>();
 
-async function requestJson<T>(input: string, init?: RequestInit): Promise<T> {
+export async function requestJson<T>(input: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${WEB_API_BASE}${input}`, {
     ...init,
     headers: {

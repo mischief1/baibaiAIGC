@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { DocumentCard } from "./components/DocumentCard";
 import { HistoryCard } from "./components/HistoryCard";
 import { ModelConfigCard } from "./components/ModelConfigCard";
+import { ReferenceWorkspace } from "./components/reference/ReferenceWorkspace";
 import { ResultCard } from "./components/ResultCard";
 import { useAppState, type ActivePreview } from "./hooks/useAppState";
 import type { AppService } from "./lib/appService";
@@ -19,12 +20,13 @@ type Props = {
   pickerLabel?: string;
 };
 
-type PageKey = "workspace" | "history" | "result";
+type PageKey = "workspace" | "history" | "result" | "references";
 
 const PAGE_META: Array<{ key: PageKey; title: string; description: string }> = [
   { key: "workspace", title: "文档工作台", description: "模型设置、导入文档和整轮续跑" },
   { key: "history", title: "历史记录", description: "查看轮次结果、修订版与导出记录" },
   { key: "result", title: "预览", description: "按段落选择后生成修订版或下一轮局部处理" },
+  { key: "references", title: "参考文献", description: "独立参考文献工作流与知网确认链路" },
 ];
 
 function formatRuntimeStep(progress: RoundProgress | null, fallback: string): string {
@@ -690,6 +692,8 @@ export function App({ service, pickerLabel }: Props) {
             onExportDocx={() => handleExport("docx")}
           />
         ) : null}
+
+        {currentPage === "references" ? <ReferenceWorkspace /> : null}
       </section>
     </main>
   );

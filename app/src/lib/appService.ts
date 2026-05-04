@@ -11,6 +11,7 @@ import type {
   RunExecutionOptions,
   TestConnectionResult,
 } from "../types/app";
+import type { ReferenceService } from "./referenceWebService";
 
 export type PickedDocument = {
   sourcePath: string;
@@ -35,3 +36,7 @@ export interface AppService {
   readSourcePreview(inputPath: string, manifestPath: string, promptProfile: "cn" | "en"): Promise<OutputPreview>;
   exportRound(outputPath: string, targetFormat: "txt" | "docx"): Promise<ExportResult>;
 }
+
+export type ReferenceAppService = {
+  reference: ReferenceService;
+};

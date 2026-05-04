@@ -25,6 +25,18 @@ from app_service import (
     run_round_for_app,
     test_model_connection,
 )
+from reference_service import (
+    analyze_reference_job,
+    configure_reference_job,
+    create_reference_job,
+    export_reference_job,
+    generate_reference_bindings,
+    get_reference_job_status,
+    list_reference_jobs,
+    search_reference_english_candidates,
+    start_cn_browser_session,
+    submit_reference_cn_candidates,
+)
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -109,6 +121,16 @@ def write_uploaded_binary_file(filename: str, content_base64: str) -> Path:
     target_path = ORIGIN_DIR / safe_name
     target_path.write_bytes(base64.b64decode(content_base64))
     return target_path
+
+
+def create_reference_job_from_upload(payload: dict[str, Any]) -> dict[str, Any]:
+    filename = str(payload.get("filename", "")).strip()
+    encoding = str(payload.get("encoding", "text")).strip().lower()
+    if encoding == "base64":
+        target_path = write_uploaded_binary_file(filename, str(payload.get("contentBase64", "")))
+    else:
+        target_path = write_uploaded_file(filename, str(payload.get("content", "")))
+    return create_reference_job(str(target_path))
 
 
 def append_progress_event(run_id: str, event: dict[str, Any]) -> None:
@@ -373,6 +395,126 @@ def get_run_round_events(run_id: str) -> tuple[Response, int] | Response:
     response = Response(stream_with_context(generate()), mimetype="text/event-stream")
     response.headers["Cache-Control"] = "no-cache"
     return response
+
+
+@app.route("/api/reference/upload-document", methods=["POST"])
+def post_reference_upload_document() -> tuple[Response, int] | Response:
+    try:
+        payload = request.get_json(silent=True) or {}
+        return jsonify(create_reference_job_from_upload(payload)), 201
+    except Exception as exc:
+        return error_response(str(exc))
+
+
+@app.route("/api/reference/status", methods=["GET"])
+def get_reference_status() -> tuple[Response, int] | Response:
+    try:
+        job_id = require_query_value("jobId")
+        return jsonify(get_reference_job_status(job_id))
+    except Exception as exc:
+        return error_response(str(exc))
+
+
+@app.route("/api/reference/history", methods=["GET"])
+def get_reference_history() -> tuple[Response, int] | Response:
+    try:
+        return jsonify(list_reference_jobs())
+    except Exception as exc:
+        return error_response(str(exc))
+
+
+@app.route("/api/reference/analyze", methods=["POST"])
+def post_reference_analyze() -> tuple[Response, int] | Response:
+    try:
+        payload = request.get_json(silent=True) or {}
+        return jsonify(analyze_reference_job(str(payload.get("jobId", "")).strip()))
+    except Exception as exc:
+        return error_response(str(exc))
+
+
+@app.route("/api/reference/configure", methods=["POST"])
+def post_reference_configure() -> tuple[Response, int] | Response:
+    try:
+        payload = request.get_json(silent=True) or {}
+        return jsonify(
+            configure_reference_job(
+                str(payload.get("jobId", "")).strip(),
+                chinese_count=int(payload.get("targetChineseCount", 0) or 0),
+                english_count=int(payload.get("targetEnglishCount", 0) or 0),
+            )
+        )
+    except Exception as exc:
+        return error_response(str(exc))
+
+
+@app.route("/api/reference/search-english", methods=["POST"])
+def post_reference_search_english() -> tuple[Response, int] | Response:
+    try:
+        payload = request.get_json(silent=True) or {}
+        return jsonify(search_reference_english_candidates(str(payload.get("jobId", "")).strip()))
+    except Exception as exc:
+        return error_response(str(exc))
+
+
+@app.route("/api/reference/start-cn-browser-session", methods=["POST"])
+def post_reference_start_cn_session() -> tuple[Response, int] | Response:
+    try:
+        payload = request.get_json(silent=True) or {}
+        return jsonify(start_cn_browser_session(str(payload.get("jobId", "")).strip()))
+    except Exception as exc:
+        return error_response(str(exc))
+
+
+@app.route("/api/reference/submit-cn-candidates", methods=["POST"])
+def post_reference_submit_cn_candidates() -> tuple[Response, int] | Response:
+    try:
+        payload = request.get_json(silent=True) or {}
+        candidates = payload.get("candidates") if isinstance(payload.get("candidates"), list) else []
+        return jsonify(submit_reference_cn_candidates(str(payload.get("jobId", "")).strip(), candidates))
+    except Exception as exc:
+        return error_response(str(exc))
+
+
+@app.route("/api/reference/generate-bindings", methods=["POST"])
+def post_reference_generate_bindings() -> tuple[Response, int] | Response:
+    try:
+        payload = request.get_json(silent=True) or {}
+        return jsonify(generate_reference_bindings(str(payload.get("jobId", "")).strip()))
+    except Exception as exc:
+        return error_response(str(exc))
+
+
+@app.route("/api/reference/preview", methods=["GET"])
+def get_reference_preview() -> tuple[Response, int] | Response:
+    try:
+        job = get_reference_job_status(require_query_value("jobId"))
+        return jsonify(job.get("preview", {}))
+    except Exception as exc:
+        return error_response(str(exc))
+
+
+@app.route("/api/reference/apply", methods=["POST"])
+def post_reference_apply() -> tuple[Response, int] | Response:
+    try:
+        payload = request.get_json(silent=True) or {}
+        return jsonify(export_reference_job(str(payload.get("jobId", "")).strip()))
+    except Exception as exc:
+        return error_response(str(exc))
+
+
+@app.route("/api/reference/export", methods=["GET"])
+def get_reference_export() -> tuple[Response, int] | Response:
+    try:
+        result = export_reference_job(require_query_value("jobId"))
+        file_path = Path(result["outputDocxPath"])
+        return send_file(
+            file_path,
+            mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            as_attachment=True,
+            download_name=file_path.name,
+        )
+    except Exception as exc:
+        return error_response(str(exc))
 
 
 @app.errorhandler(404)

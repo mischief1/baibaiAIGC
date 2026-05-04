@@ -246,3 +246,90 @@ export type OutputPreview = {
   text: string;
   paragraphs: ParagraphPreview[];
 };
+
+export type ReferenceJobStage =
+  | "uploaded"
+  | "analyzed"
+  | "configured"
+  | "english_searched"
+  | "cn_waiting_login"
+  | "cn_candidates_confirmed"
+  | "bindings_generated"
+  | "applied"
+  | "exported";
+
+export type ReferenceCandidate = {
+  candidateId: string;
+  title: string;
+  authors: string[];
+  year: string;
+  source: string;
+  language: string;
+  doi?: string;
+  url?: string;
+  journal?: string;
+  query?: string;
+  relevanceScore?: number;
+  matchedTopicIds: string[];
+  verified: boolean;
+  userConfirmed: boolean;
+  metadata: Record<string, unknown>;
+};
+
+export type ReferenceBinding = {
+  bindingId: string;
+  sentenceId: string;
+  paragraphId: string;
+  candidateId: string;
+  citationIndex: number;
+  marker: string;
+  confidence: number;
+  metadata: Record<string, unknown>;
+};
+
+export type ReferenceAnalysisResult = {
+  recommendedTotalCount: number;
+  recommendedChineseCount: number;
+  recommendedEnglishCount: number;
+  recommendedCitationPositionsCount: number;
+};
+
+export type ReferencePreviewPayload = {
+  jobId: string;
+  annotatedText: string;
+  referencesText: string;
+  bindings: ReferenceBinding[];
+  usedCandidates: ReferenceCandidate[];
+  metadata: Record<string, unknown>;
+};
+
+export type ReferenceExportResult = {
+  jobId: string;
+  outputPath: string;
+  outputDocxPath: string;
+  status: ReferenceJobStage;
+};
+
+export type ReferenceJobStatus = {
+  jobId: string;
+  sourcePath: string;
+  status: ReferenceJobStage;
+  analysisStatus: string;
+  englishSearchStatus: string;
+  chineseSearchStatus: string;
+  bindingStatus: string;
+  exportStatus: string;
+  analysisSummary?: ReferenceAnalysisResult;
+  topicClusters?: Array<Record<string, unknown>>;
+  englishCandidates?: ReferenceCandidate[];
+  chineseCandidates?: ReferenceCandidate[];
+  bindings?: ReferenceBinding[];
+  preview?: ReferencePreviewPayload;
+  targetChineseCount?: number;
+  targetEnglishCount?: number;
+  cnBrowserSession?: {
+    status: string;
+    topicClusters: Array<Record<string, unknown>>;
+    limitFlags: Record<string, unknown>;
+  };
+};
