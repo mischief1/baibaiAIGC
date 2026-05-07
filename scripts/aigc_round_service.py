@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import json
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from aigc_records import ROOT_DIR, update_round
 from chunking import DEFAULT_CHUNK_LIMIT, ChunkManifest, build_manifest, restore_text_from_chunks, save_manifest
@@ -43,6 +44,29 @@ class RoundStoppedError(RuntimeError):
         super().__init__(message)
         self.completed_chunks = completed_chunks
         self.total_chunks = total_chunks
+
+
+class ChunkRewriteError(RuntimeError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        chunk_id: str,
+        failure_stage: str,
+        input_text: str,
+        prompt_input: str,
+        output_text: str = "",
+        retry_prompt_input: str = "",
+        retry_output_text: str = "",
+    ):
+        super().__init__(message)
+        self.chunk_id = chunk_id
+        self.failure_stage = failure_stage
+        self.input_text = input_text
+        self.prompt_input = prompt_input
+        self.output_text = output_text
+        self.retry_prompt_input = retry_prompt_input
+        self.retry_output_text = retry_output_text
 
 
 SHARED_OUTPUT_CONTRACT = """
@@ -263,13 +287,29 @@ def _rewrite_chunk_with_validation(
     chunk_id: str,
 ) -> str:
     prompt_input = build_prompt_input(prompt_text, chunk_text, round_number, chunk_id)
-    chunk_output = transform(chunk_text, prompt_input, round_number, chunk_id)
+    try:
+        chunk_output = transform(chunk_text, prompt_input, round_number, chunk_id)
+    except Exception as exc:
+        raise ChunkRewriteError(
+            str(exc),
+            chunk_id=chunk_id,
+            failure_stage="initial_transform",
+            input_text=chunk_text,
+            prompt_input=prompt_input,
+        ) from exc
     try:
         validate_chunk_output(chunk_text, chunk_output, chunk_id)
         return chunk_output
     except Exception as exc:
         if not is_answer_style_validation_error(exc):
-            raise
+            raise ChunkRewriteError(
+                str(exc),
+                chunk_id=chunk_id,
+                failure_stage="initial_validate",
+                input_text=chunk_text,
+                prompt_input=prompt_input,
+                output_text=chunk_output,
+            ) from exc
 
     retry_prompt_input = build_prompt_input(
         prompt_text,
@@ -278,8 +318,31 @@ def _rewrite_chunk_with_validation(
         chunk_id,
         extra_contract=RETRY_OUTPUT_CONTRACT,
     )
-    retry_output = transform(chunk_text, retry_prompt_input, round_number, chunk_id)
-    validate_chunk_output(chunk_text, retry_output, chunk_id)
+    try:
+        retry_output = transform(chunk_text, retry_prompt_input, round_number, chunk_id)
+    except Exception as exc:
+        raise ChunkRewriteError(
+            str(exc),
+            chunk_id=chunk_id,
+            failure_stage="retry_transform",
+            input_text=chunk_text,
+            prompt_input=prompt_input,
+            output_text=chunk_output,
+            retry_prompt_input=retry_prompt_input,
+        ) from exc
+    try:
+        validate_chunk_output(chunk_text, retry_output, chunk_id)
+    except Exception as exc:
+        raise ChunkRewriteError(
+            str(exc),
+            chunk_id=chunk_id,
+            failure_stage="retry_validate",
+            input_text=chunk_text,
+            prompt_input=prompt_input,
+            output_text=chunk_output,
+            retry_prompt_input=retry_prompt_input,
+            retry_output_text=retry_output,
+        ) from exc
     return retry_output
 
 
@@ -303,6 +366,104 @@ def build_stop_request_path(manifest_path: Path) -> Path:
     else:
         stop_name = f"{path_stem}_stop.json"
     return normalized_manifest_path.with_name(stop_name)
+
+
+def build_failure_log_path(progress_path: Path) -> Path:
+    normalized_progress_path = normalize_path(progress_path)
+    return ROOT_DIR / "logs" / f"{normalized_progress_path.stem}_failures.jsonl"
+
+
+def get_global_failure_log_path() -> Path:
+    return ROOT_DIR / "logs" / "chunk_failures.jsonl"
+
+
+def _utc_timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _safe_relative_string(path: Path) -> str:
+    try:
+        return relative_to_root(path)
+    except Exception:
+        return str(path)
+
+
+def _append_jsonl(path: Path, record: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def log_chunk_failure(
+    *,
+    progress_path: Path,
+    manifest_path: Path,
+    input_path: Path,
+    output_path: Path,
+    round_number: int,
+    chunk_id: str,
+    paragraph_index: int,
+    chunk_index: int,
+    error_message: str,
+    exc: Exception,
+    model_config_summary: dict[str, object] | None = None,
+) -> None:
+    normalized_progress_path = normalize_path(progress_path)
+    normalized_manifest_path = normalize_path(manifest_path)
+    normalized_input_path = normalize_path(input_path)
+    normalized_output_path = normalize_path(output_path)
+
+    record: dict[str, Any] = {
+        "timestamp": _utc_timestamp(),
+        "round": round_number,
+        "chunkId": chunk_id,
+        "paragraphIndex": paragraph_index,
+        "chunkIndex": chunk_index,
+        "error": error_message,
+        "errorType": type(exc).__name__,
+        "progressPath": str(normalized_progress_path),
+        "manifestPath": str(normalized_manifest_path),
+        "inputPath": str(normalized_input_path),
+        "outputPath": str(normalized_output_path),
+        "progressPathRelative": _safe_relative_string(normalized_progress_path),
+        "manifestPathRelative": _safe_relative_string(normalized_manifest_path),
+        "inputPathRelative": _safe_relative_string(normalized_input_path),
+        "outputPathRelative": _safe_relative_string(normalized_output_path),
+        "modelConfig": dict(model_config_summary or {}),
+    }
+
+    if isinstance(exc, ChunkRewriteError):
+        record.update(
+            {
+                "failureStage": exc.failure_stage,
+                "inputText": exc.input_text,
+                "promptInput": exc.prompt_input,
+                "outputText": exc.output_text,
+                "retryPromptInput": exc.retry_prompt_input,
+                "retryOutputText": exc.retry_output_text,
+            }
+        )
+    else:
+        record.update(
+            {
+                "failureStage": "run_round",
+                "inputText": "",
+                "promptInput": "",
+                "outputText": "",
+                "retryPromptInput": "",
+                "retryOutputText": "",
+            }
+        )
+
+    try:
+        _append_jsonl(build_failure_log_path(normalized_progress_path), record)
+    except OSError:
+        pass
+
+    try:
+        _append_jsonl(get_global_failure_log_path(), record)
+    except OSError:
+        pass
 
 
 def _default_progress_payload(
@@ -599,6 +760,7 @@ def run_round(
     target_paragraph_indexes: list[int] | None = None,
     based_on_output_path: str | None = None,
     based_on_manifest_path: str | None = None,
+    model_config_summary: dict[str, object] | None = None,
 ) -> dict:
     normalized_input_path = normalize_path(input_path)
     normalized_output_path = normalize_path(output_path)
@@ -736,6 +898,19 @@ def run_round(
             progress_payload["last_error_chunk_id"] = chunk.chunk_id
             progress_payload["completed_chunks"] = len(chunk_outputs)
             _save_progress_payload(normalized_progress_path, progress_payload)
+            log_chunk_failure(
+                progress_path=normalized_progress_path,
+                manifest_path=normalized_manifest_path,
+                input_path=normalized_input_path,
+                output_path=normalized_output_path,
+                round_number=round_number,
+                chunk_id=chunk.chunk_id,
+                paragraph_index=chunk.paragraph_index,
+                chunk_index=chunk.chunk_index,
+                error_message=error_message,
+                exc=exc,
+                model_config_summary=model_config_summary,
+            )
             if progress_callback is not None:
                 progress_callback(
                     {

@@ -12,6 +12,7 @@ DEFAULT_HEADERS = {
     "User-Agent": "curl/8.7.1",
 }
 ERROR_BODY_PREVIEW_LIMIT = 240
+DEFAULT_MAX_OUTPUT_TOKENS = 4096
 
 
 class LLMClientError(RuntimeError):
@@ -61,12 +62,27 @@ def build_endpoint(base_url: str, api_type: str) -> str:
     return f"{normalized_base_url}/chat/completions"
 
 
+def resolve_max_output_tokens() -> int:
+    raw_value = os.getenv("BAIBAIAIGC_MAX_OUTPUT_TOKENS", "").strip()
+    if not raw_value:
+        return DEFAULT_MAX_OUTPUT_TOKENS
+    try:
+        parsed = int(raw_value)
+    except ValueError:
+        return DEFAULT_MAX_OUTPUT_TOKENS
+    if parsed <= 0:
+        return DEFAULT_MAX_OUTPUT_TOKENS
+    return min(parsed, DEFAULT_MAX_OUTPUT_TOKENS)
+
+
 def build_payload(prompt: str, *, model: str, temperature: float, api_type: str) -> dict[str, object]:
+    max_output_tokens = resolve_max_output_tokens()
     if api_type == "responses":
         return {
             "model": model,
             "input": prompt,
             "temperature": temperature,
+            "max_output_tokens": max_output_tokens,
         }
 
     return {
@@ -75,6 +91,7 @@ def build_payload(prompt: str, *, model: str, temperature: float, api_type: str)
             {"role": "user", "content": prompt},
         ],
         "temperature": temperature,
+        "max_tokens": max_output_tokens,
     }
 
 

@@ -448,6 +448,14 @@ def run_round_for_app(
     temperature = float(normalized_config["temperature"])
     offline_mode = bool(normalized_config["offlineMode"])
     prompt_profile = str(normalized_config["promptProfile"])
+    model_config_summary = {
+        "baseUrl": base_url,
+        "model": model,
+        "apiType": api_type,
+        "temperature": temperature,
+        "offlineMode": offline_mode,
+        "promptProfile": prompt_profile,
+    }
 
     if not offline_mode and (not base_url or not api_key or not model):
         raise ValueError("Model configuration is incomplete.")
@@ -481,6 +489,7 @@ def run_round_for_app(
         prompt_profile=prompt_profile,
         progress_callback=active_progress_callback,
         execution_options=execution_options,
+        model_config_summary=model_config_summary,
     )
     if result["skill_context"].get("is_revision"):
         doc_entry = update_revision(

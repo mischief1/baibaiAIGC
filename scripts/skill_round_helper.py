@@ -425,6 +425,7 @@ def run_skill_round(
     prompt_profile: str = "cn",
     progress_callback: ProgressCallback | None = None,
     execution_options: dict | None = None,
+    model_config_summary: dict[str, object] | None = None,
 ) -> dict:
     context = build_execution_context(
         source_path,
@@ -448,6 +449,7 @@ def run_skill_round(
         target_paragraph_indexes=context.target_paragraph_indexes,
         based_on_output_path=context.based_on_output_path,
         based_on_manifest_path=context.based_on_manifest_path,
+        model_config_summary=model_config_summary,
     )
     result["skill_context"] = context.to_dict()
     return result
